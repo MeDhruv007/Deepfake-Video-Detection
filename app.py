@@ -97,9 +97,7 @@ st.markdown("""
     /* Dark Monochromatic styling */
     .block-container {
         padding-top: 2rem;
-        padding-bottom: 0rem;
-        max-height: 100vh;
-        overflow: hidden;
+        padding-bottom: 2rem;
     }
     div[data-testid="stMetricValue"] {
         font-size: 32px;
