@@ -1,0 +1,52 @@
+# Python & Byte-compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments
+venv/
+venv_win/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Raw dataset folder
+data/
+
+# Presentation & Document binaries
+*.pdf
+*.pptx
+*.docx
+
+# Large video files
+fake*.mp4
+real*.mp4
+jetha*.mp4
+manga*.mp4
+videocheck*.mp4
+
+# Logs & Temporary files
+*.log
+error_log.txt
+temp_download_*
+*.tmp
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Backup folders
+backup_v1/
