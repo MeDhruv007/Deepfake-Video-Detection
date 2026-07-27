@@ -184,38 +184,78 @@ if video_url:
         with st.spinner("Downloading media from URL..."):
             import os
             import urllib.request
+            import re as _re
             file_name_default = video_url.split('/')[-1].split('?')[0] if '/' in video_url else 'url_media'
             video_exts = ('.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv')
             image_exts = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp')
             url_lower = video_url.lower().split('?')[0]
             
             downloaded = False
+            _HEADERS = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/*,video/*,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
             
-            # Method 1: Direct HTTP download (works for direct file links and most sites)
+            def _download_direct(url, timeout=30):
+                """Download bytes from a direct media URL."""
+                req = urllib.request.Request(url, headers={**_HEADERS, 'Referer': video_url})
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return resp.read(), resp.headers.get('Content-Type', '').lower()
+            
+            # Method 1: Direct HTTP download (for direct .mp4, .jpg links)
             try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': '*/*',
-                    'Referer': video_url,
-                }
-                req = urllib.request.Request(video_url, headers=headers)
-                with urllib.request.urlopen(req, timeout=30) as response:
-                    file_bytes = response.read()
-                    content_type = response.headers.get('Content-Type', '').lower()
+                file_bytes, content_type = _download_direct(video_url)
+                is_video = any(url_lower.endswith(ext) for ext in video_exts) or 'video' in content_type
+                is_image = any(url_lower.endswith(ext) for ext in image_exts) or 'image' in content_type
+                
+                if is_video or is_image:
+                    st.session_state.cached_bytes = file_bytes
+                    st.session_state.cached_is_video = is_video
+                    st.session_state.cached_file_name = file_name_default
+                    st.session_state.needs_download = False
+                    downloaded = True
+                elif 'html' in content_type:
+                    # Method 2: Page is HTML — extract og:video or og:image meta tags
+                    html_text = file_bytes.decode('utf-8', errors='ignore')
+                    # Look for og:video, og:video:url, og:video:secure_url, then og:image
+                    media_url = None
+                    media_is_video = False
+                    for tag in ['og:video:secure_url', 'og:video:url', 'og:video', 'twitter:player:stream']:
+                        match = _re.search(rf'<meta[^>]*property=["\']{ _re.escape(tag) }["\'][^>]*content=["\'](https?://[^"\']+)["\']', html_text, _re.IGNORECASE)
+                        if not match:
+                            match = _re.search(rf'<meta[^>]*content=["\'](https?://[^"\']+)["\'][^>]*property=["\']{ _re.escape(tag) }["\']', html_text, _re.IGNORECASE)
+                        if match:
+                            media_url = match.group(1)
+                            media_is_video = True
+                            break
+                    if not media_url:
+                        for tag in ['og:image:secure_url', 'og:image', 'twitter:image']:
+                            match = _re.search(rf'<meta[^>]*(?:property|name)=["\']{ _re.escape(tag) }["\'][^>]*content=["\'](https?://[^"\']+)["\']', html_text, _re.IGNORECASE)
+                            if not match:
+                                match = _re.search(rf'<meta[^>]*content=["\'](https?://[^"\']+)["\'][^>]*(?:property|name)=["\']{ _re.escape(tag) }["\']', html_text, _re.IGNORECASE)
+                            if match:
+                                media_url = match.group(1)
+                                media_is_video = False
+                                break
+                    # Also try finding direct video src in HTML
+                    if not media_url:
+                        vid_match = _re.search(r'<(?:video|source)[^>]*src=["\'](https?://[^"\']+\.(?:mp4|webm|mov))["\']', html_text, _re.IGNORECASE)
+                        if vid_match:
+                            media_url = vid_match.group(1)
+                            media_is_video = True
                     
-                    is_video = any(url_lower.endswith(ext) for ext in video_exts) or 'video' in content_type
-                    is_image = any(url_lower.endswith(ext) for ext in image_exts) or 'image' in content_type
-                    
-                    if is_video or is_image:
-                        st.session_state.cached_bytes = file_bytes
-                        st.session_state.cached_is_video = is_video
+                    if media_url:
+                        media_bytes, media_ct = _download_direct(media_url)
+                        st.session_state.cached_bytes = media_bytes
+                        st.session_state.cached_is_video = media_is_video or 'video' in media_ct
                         st.session_state.cached_file_name = file_name_default
                         st.session_state.needs_download = False
                         downloaded = True
             except Exception:
                 pass  # Fall through to yt-dlp
             
-            # Method 2: yt-dlp (for YouTube, Twitter, Instagram, TikTok, etc.)
+            # Method 3: yt-dlp (for YouTube, Twitter, Instagram, TikTok, etc.)
             if not downloaded:
                 try:
                     import yt_dlp
@@ -224,9 +264,7 @@ if video_url:
                         'outtmpl': 'temp_download_%(id)s.%(ext)s',
                         'quiet': True,
                         'no_warnings': True,
-                        'http_headers': {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        }
+                        'http_headers': _HEADERS,
                     }
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info_dict = ydl.extract_info(video_url, download=True)
@@ -249,7 +287,7 @@ if video_url:
                         st.session_state.needs_download = False
                         downloaded = True
                 except Exception as e2:
-                    st.session_state.cached_error = f"Could not download media. Try a direct video/image URL instead.\n\nDetails: {str(e2)}"
+                    st.session_state.cached_error = f"Could not download media. Try pasting a direct video/image URL (ending in .mp4, .jpg, etc.).\n\nDetails: {str(e2)}"
                     st.session_state.needs_download = False
                 
     url_file_bytes = st.session_state.get('cached_bytes')
