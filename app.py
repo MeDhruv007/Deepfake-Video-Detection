@@ -182,38 +182,75 @@ if video_url:
     
     if analyze_pressed and st.session_state.get('needs_download', False):
         with st.spinner("Downloading media from URL..."):
+            import os
+            import urllib.request
+            file_name_default = video_url.split('/')[-1].split('?')[0] if '/' in video_url else 'url_media'
+            video_exts = ('.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv')
+            image_exts = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp')
+            url_lower = video_url.lower().split('?')[0]
+            
+            downloaded = False
+            
+            # Method 1: Direct HTTP download (works for direct file links and most sites)
             try:
-                import yt_dlp
-                import os
-                file_name_default = video_url.split('/')[-1] if '/' in video_url else 'url_media'
-                ydl_opts = {
-                    'format': 'best[ext=mp4]/best',
-                    'outtmpl': 'temp_download_%(id)s.%(ext)s',
-                    'quiet': True,
-                    'no_warnings': True
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': '*/*',
+                    'Referer': video_url,
                 }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info_dict = ydl.extract_info(video_url, download=True)
-                    base_filename = ydl.prepare_filename(info_dict)
-                    actual_filename = base_filename
-                    if not os.path.exists(actual_filename):
-                        base_no_ext = os.path.splitext(base_filename)[0]
-                        for ext in ['.mkv', '.mp4', '.webm', '.flv']:
-                            if os.path.exists(base_no_ext + ext):
-                                actual_filename = base_no_ext + ext
-                                break
-                                
-                    with open(actual_filename, 'rb') as f:
-                        file_bytes = f.read()
-                    os.remove(actual_filename)
+                req = urllib.request.Request(video_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    file_bytes = response.read()
+                    content_type = response.headers.get('Content-Type', '').lower()
                     
-                    st.session_state.cached_bytes = file_bytes
-                    st.session_state.cached_is_video = True
-                    st.session_state.cached_file_name = info_dict.get('title', file_name_default)
+                    is_video = any(url_lower.endswith(ext) for ext in video_exts) or 'video' in content_type
+                    is_image = any(url_lower.endswith(ext) for ext in image_exts) or 'image' in content_type
+                    
+                    if is_video or is_image:
+                        st.session_state.cached_bytes = file_bytes
+                        st.session_state.cached_is_video = is_video
+                        st.session_state.cached_file_name = file_name_default
+                        st.session_state.needs_download = False
+                        downloaded = True
+            except Exception:
+                pass  # Fall through to yt-dlp
+            
+            # Method 2: yt-dlp (for YouTube, Twitter, Instagram, TikTok, etc.)
+            if not downloaded:
+                try:
+                    import yt_dlp
+                    ydl_opts = {
+                        'format': 'best[ext=mp4]/best',
+                        'outtmpl': 'temp_download_%(id)s.%(ext)s',
+                        'quiet': True,
+                        'no_warnings': True,
+                        'http_headers': {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        }
+                    }
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info_dict = ydl.extract_info(video_url, download=True)
+                        base_filename = ydl.prepare_filename(info_dict)
+                        actual_filename = base_filename
+                        if not os.path.exists(actual_filename):
+                            base_no_ext = os.path.splitext(base_filename)[0]
+                            for ext in ['.mkv', '.mp4', '.webm', '.flv']:
+                                if os.path.exists(base_no_ext + ext):
+                                    actual_filename = base_no_ext + ext
+                                    break
+                                    
+                        with open(actual_filename, 'rb') as f:
+                            file_bytes = f.read()
+                        os.remove(actual_filename)
+                        
+                        st.session_state.cached_bytes = file_bytes
+                        st.session_state.cached_is_video = True
+                        st.session_state.cached_file_name = info_dict.get('title', file_name_default)
+                        st.session_state.needs_download = False
+                        downloaded = True
+                except Exception as e2:
+                    st.session_state.cached_error = f"Could not download media. Try a direct video/image URL instead.\n\nDetails: {str(e2)}"
                     st.session_state.needs_download = False
-            except Exception as e:
-                st.session_state.cached_error = f"Failed to download URL: {str(e)}"
-                st.session_state.needs_download = False
                 
     url_file_bytes = st.session_state.get('cached_bytes')
     url_is_video = st.session_state.get('cached_is_video', False)
